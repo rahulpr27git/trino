@@ -88,6 +88,7 @@ import java.util.AbstractMap.SimpleEntry;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.Stream;
 
@@ -185,6 +186,37 @@ public class TeradataClient
     // We don't know null fraction, but having no null fraction will make CBO useless. Assume some arbitrary value.
     private static final Estimate UNKNOWN_NULL_FRACTION_REPLACEMENT = Estimate.of(0.1);
 
+    private static final Set<String> INTERNAL_SCHEMAS = ImmutableSet.<String>builder()
+            .add("all")
+            .add("crashdumps")
+            .add("dbc")
+            .add("dbcmngr")
+            .add("external_ap")
+            .add("extuser")
+            .add("locklogshredder")
+            .add("sqlj")
+            .add("sys_calendar")
+            .add("sysadmin")
+            .add("sysbar")
+            .add("sysjdbc")
+            .add("syslib")
+            .add("sysspatial")
+            .add("systemfe")
+            .add("sysudtlib")
+            .add("sysuif")
+            .add("td_analytics_db")
+            .add("td_server_db")
+            .add("td_sysfnlib")
+            .add("td_sysgpl")
+            .add("td_sysxml")
+            .add("tdaas_db")
+            .add("tdmaps")
+            .add("tdpuser")
+            .add("tdqcd")
+            .add("tdstats")
+            .add("tdwm")
+            .build();
+
     private final Type jsonType;
     private final boolean statisticsEnabled;
     private final ConnectorExpressionRewriter<String> connectorExpressionRewriter;
@@ -249,6 +281,15 @@ public class TeradataClient
             throws SQLException
     {
         return connection.prepareStatement(sql);
+    }
+
+    @Override
+    protected boolean filterSchema(String schemaName)
+    {
+        if (INTERNAL_SCHEMAS.contains(schemaName.toLowerCase(ENGLISH))) {
+            return false;
+        }
+        return super.filterSchema(schemaName);
     }
 
     @Override
