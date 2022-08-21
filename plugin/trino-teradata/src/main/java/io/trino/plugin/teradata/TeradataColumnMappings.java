@@ -30,8 +30,8 @@ public interface TeradataColumnMappings
             public boolean isNull(ResultSet resultSet, int columnIndex)
                     throws SQLException
             {
-                // 'ResultSet.getObject' without class name may throw an exception
-                // e.g. in MySQL driver, rs.getObject(int) throws for dates between Oct 5 and 14, 1582
+                // 'ResultSet.getObject' with class name may throwing an exception for teradata
+                // e.g. in Teradata driver, rs.getObject(int, Class) throws exception of missing implementation
                 resultSet.getObject(columnIndex);
                 return resultSet.wasNull();
             }
@@ -42,7 +42,7 @@ public interface TeradataColumnMappings
             {
                 Date value = (Date) resultSet.getObject(columnIndex);
                 if (value == null) {
-                    throw new TrinoException(JDBC_ERROR, "Driver returned null LocalDate for a non-null value");
+                    throw new TrinoException(JDBC_ERROR, "Driver returned null Date for a non-null value");
                 }
 
                 return value.toLocalDate().toEpochDay();
