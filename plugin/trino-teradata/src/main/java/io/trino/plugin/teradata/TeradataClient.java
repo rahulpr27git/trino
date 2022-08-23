@@ -52,7 +52,6 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
-import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.JoinCondition;
 import io.trino.spi.connector.JoinStatistics;
 import io.trino.spi.connector.JoinType;
@@ -372,6 +371,7 @@ public class TeradataClient
                         realWriteFunction(),
                         DISABLE_PUSHDOWN));
 
+            case Types.FLOAT:
             case Types.DOUBLE:
                 return Optional.of(doubleColumnMapping());
 
@@ -522,17 +522,6 @@ public class TeradataClient
         }
 
         throw new TrinoException(NOT_SUPPORTED, "Unsupported column type: " + type.getDisplayName());
-    }
-
-    @Override
-    public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata)
-    {
-        try {
-            createTable(session, tableMetadata, tableMetadata.getTable().getTableName());
-        }
-        catch (SQLException e) {
-            throw new TrinoException(JDBC_ERROR, e);
-        }
     }
 
     @Override
