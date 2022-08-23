@@ -113,7 +113,6 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.bigintWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.booleanColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.booleanWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.charWriteFunction;
-import static io.trino.plugin.jdbc.StandardColumnMappings.dateColumnMappingUsingLocalDate;
 import static io.trino.plugin.jdbc.StandardColumnMappings.dateWriteFunctionUsingLocalDate;
 import static io.trino.plugin.jdbc.StandardColumnMappings.decimalColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.defaultCharColumnMapping;
@@ -128,9 +127,7 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.realWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.shortDecimalWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.smallintColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.smallintWriteFunction;
-import static io.trino.plugin.jdbc.StandardColumnMappings.timeColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.timeWriteFunction;
-import static io.trino.plugin.jdbc.StandardColumnMappings.timestampColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.timestampWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.tinyintColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.tinyintWriteFunction;
@@ -407,15 +404,15 @@ public class TeradataClient
                 return Optional.of(ColumnMapping.sliceMapping(VARBINARY, varbinaryReadFunction(), varbinaryWriteFunction(), FULL_PUSHDOWN));
 
             case Types.DATE:
-                return Optional.of(dateColumnMappingUsingLocalDate());
+                return Optional.of(TeradataColumnMappings.dateColumnMappingUsingLocalDate());
 
             case Types.TIME:
                 TimeType timeType = createTimeType(getTimePrecision(typeHandle.getRequiredColumnSize()));
-                return Optional.of(timeColumnMapping(timeType));
+                return Optional.of(TeradataColumnMappings.timeColumnMapping(timeType));
 
             case Types.TIMESTAMP:
                 TimestampType timestampType = createTimestampType(getTimestampPrecision(typeHandle.getRequiredColumnSize()));
-                return Optional.of(timestampColumnMapping(timestampType));
+                return Optional.of(TeradataColumnMappings.timestampColumnMapping(timestampType));
         }
 
         if (getUnsupportedTypeHandling(session) == CONVERT_TO_VARCHAR) {

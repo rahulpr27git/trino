@@ -11,31 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.jdbc;
+package io.trino.plugin.teradata;
 
-import com.google.common.base.CharMatcher;
-import com.google.common.primitives.Shorts;
-import com.google.common.primitives.SignedBytes;
-import io.airlift.slice.Slice;
+import io.trino.plugin.jdbc.ColumnMapping;
+import io.trino.plugin.jdbc.LongReadFunction;
+import io.trino.plugin.jdbc.LongWriteFunction;
+import io.trino.plugin.jdbc.ObjectReadFunction;
+import io.trino.plugin.jdbc.ObjectWriteFunction;
 import io.trino.spi.TrinoException;
-import io.trino.spi.type.CharType;
-import io.trino.spi.type.DecimalType;
-import io.trino.spi.type.Decimals;
-import io.trino.spi.type.Int128;
 import io.trino.spi.type.LongTimestamp;
 import io.trino.spi.type.TimeType;
 import io.trino.spi.type.TimestampType;
-import io.trino.spi.type.Type;
-import io.trino.spi.type.VarcharType;
 import org.joda.time.DateTimeZone;
 import org.joda.time.chrono.ISOChronology;
 
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.math.MathContext;
-import java.math.RoundingMode;
 import java.sql.Date;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
@@ -48,23 +38,9 @@ import java.time.LocalTime;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
-import static com.google.common.io.BaseEncoding.base16;
-import static io.airlift.slice.SliceUtf8.countCodePoints;
-import static io.airlift.slice.Slices.utf8Slice;
-import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.trino.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
-import static io.trino.plugin.jdbc.PredicatePushdownController.CASE_INSENSITIVE_CHARACTER_PUSHDOWN;
 import static io.trino.plugin.jdbc.PredicatePushdownController.DISABLE_PUSHDOWN;
-import static io.trino.plugin.jdbc.PredicatePushdownController.FULL_PUSHDOWN;
-import static io.trino.spi.type.BigintType.BIGINT;
-import static io.trino.spi.type.BooleanType.BOOLEAN;
-import static io.trino.spi.type.CharType.createCharType;
 import static io.trino.spi.type.DateType.DATE;
-import static io.trino.spi.type.Decimals.encodeShortScaledValue;
-import static io.trino.spi.type.DoubleType.DOUBLE;
-import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.spi.type.RealType.REAL;
-import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimeType.TIME;
 import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.Timestamps.NANOSECONDS_PER_DAY;
@@ -73,287 +49,20 @@ import static io.trino.spi.type.Timestamps.PICOSECONDS_PER_DAY;
 import static io.trino.spi.type.Timestamps.PICOSECONDS_PER_NANOSECOND;
 import static io.trino.spi.type.Timestamps.round;
 import static io.trino.spi.type.Timestamps.roundDiv;
-import static io.trino.spi.type.TinyintType.TINYINT;
-import static io.trino.spi.type.VarbinaryType.VARBINARY;
-import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
-import static io.trino.spi.type.VarcharType.createVarcharType;
-import static java.lang.Float.floatToRawIntBits;
-import static java.lang.Float.intBitsToFloat;
 import static java.lang.Math.floorDiv;
 import static java.lang.Math.floorMod;
 import static java.lang.Math.toIntExact;
-import static java.lang.String.format;
-import static java.math.RoundingMode.UNNECESSARY;
 import static java.time.ZoneOffset.UTC;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-public final class StandardColumnMappings
+public final class TeradataColumnMappings
 {
     private static final int MAX_LOCAL_DATE_TIME_PRECISION = 9;
 
-    private StandardColumnMappings() {}
-
-    public static ColumnMapping booleanColumnMapping()
-    {
-        return ColumnMapping.booleanMapping(BOOLEAN, ResultSet::getBoolean, booleanWriteFunction());
-    }
-
-    public static BooleanWriteFunction booleanWriteFunction()
-    {
-        return PreparedStatement::setBoolean;
-    }
-
-    public static ColumnMapping tinyintColumnMapping()
-    {
-        return ColumnMapping.longMapping(TINYINT, ResultSet::getByte, tinyintWriteFunction());
-    }
-
-    public static LongWriteFunction tinyintWriteFunction()
-    {
-        return LongWriteFunction.of(Types.TINYINT, (statement, index, value) -> statement.setByte(index, SignedBytes.checkedCast(value)));
-    }
-
-    public static ColumnMapping smallintColumnMapping()
-    {
-        return ColumnMapping.longMapping(SMALLINT, ResultSet::getShort, smallintWriteFunction());
-    }
-
-    public static LongWriteFunction smallintWriteFunction()
-    {
-        return LongWriteFunction.of(Types.SMALLINT, (statement, index, value) -> statement.setShort(index, Shorts.checkedCast(value)));
-    }
-
-    public static ColumnMapping integerColumnMapping()
-    {
-        return ColumnMapping.longMapping(INTEGER, ResultSet::getInt, integerWriteFunction());
-    }
-
-    public static LongWriteFunction integerWriteFunction()
-    {
-        return LongWriteFunction.of(Types.INTEGER, (statement, index, value) -> statement.setInt(index, toIntExact(value)));
-    }
-
-    public static ColumnMapping bigintColumnMapping()
-    {
-        return ColumnMapping.longMapping(BIGINT, ResultSet::getLong, bigintWriteFunction());
-    }
-
-    public static LongWriteFunction bigintWriteFunction()
-    {
-        return LongWriteFunction.of(Types.BIGINT, PreparedStatement::setLong);
-    }
-
-    public static ColumnMapping realColumnMapping()
-    {
-        return ColumnMapping.longMapping(REAL, (resultSet, columnIndex) -> floatToRawIntBits(resultSet.getFloat(columnIndex)), realWriteFunction());
-    }
-
-    public static LongWriteFunction realWriteFunction()
-    {
-        return LongWriteFunction.of(Types.REAL, (statement, index, value) -> statement.setFloat(index, intBitsToFloat(toIntExact(value))));
-    }
-
-    public static ColumnMapping doubleColumnMapping()
-    {
-        return ColumnMapping.doubleMapping(DOUBLE, ResultSet::getDouble, doubleWriteFunction());
-    }
-
-    public static DoubleWriteFunction doubleWriteFunction()
-    {
-        return DoubleWriteFunction.of(Types.DOUBLE, PreparedStatement::setDouble);
-    }
-
-    public static ColumnMapping decimalColumnMapping(DecimalType decimalType)
-    {
-        return decimalColumnMapping(decimalType, UNNECESSARY);
-    }
-
-    public static ColumnMapping decimalColumnMapping(DecimalType decimalType, RoundingMode roundingMode)
-    {
-        if (decimalType.isShort()) {
-            checkArgument(roundingMode == UNNECESSARY, "Round mode is not supported for short decimal, map the type to long decimal instead");
-            return ColumnMapping.longMapping(
-                    decimalType,
-                    shortDecimalReadFunction(decimalType),
-                    shortDecimalWriteFunction(decimalType));
-        }
-        return ColumnMapping.objectMapping(
-                decimalType,
-                longDecimalReadFunction(decimalType, roundingMode),
-                longDecimalWriteFunction(decimalType));
-    }
-
-    public static LongReadFunction shortDecimalReadFunction(DecimalType decimalType)
-    {
-        return shortDecimalReadFunction(decimalType, UNNECESSARY);
-    }
-
-    public static LongReadFunction shortDecimalReadFunction(DecimalType decimalType, RoundingMode roundingMode)
-    {
-        // JDBC driver can return BigDecimal with lower scale than column's scale when there are trailing zeroes
-        int scale = requireNonNull(decimalType, "decimalType is null").getScale();
-        requireNonNull(roundingMode, "roundingMode is null");
-        return (resultSet, columnIndex) -> encodeShortScaledValue(resultSet.getBigDecimal(columnIndex), scale, roundingMode);
-    }
-
-    public static LongWriteFunction shortDecimalWriteFunction(DecimalType decimalType)
-    {
-        requireNonNull(decimalType, "decimalType is null");
-        checkArgument(decimalType.isShort());
-
-        return LongWriteFunction.of(Types.DECIMAL, (statement, index, value) -> {
-            BigInteger unscaledValue = BigInteger.valueOf(value);
-            BigDecimal bigDecimal = new BigDecimal(unscaledValue, decimalType.getScale(), new MathContext(decimalType.getPrecision()));
-            statement.setBigDecimal(index, bigDecimal);
-        });
-    }
-
-    public static ObjectReadFunction longDecimalReadFunction(DecimalType decimalType)
-    {
-        return longDecimalReadFunction(decimalType, UNNECESSARY);
-    }
-
-    public static ObjectReadFunction longDecimalReadFunction(DecimalType decimalType, RoundingMode roundingMode)
-    {
-        // JDBC driver can return BigDecimal with lower scale than column's scale when there are trailing zeroes
-        int scale = requireNonNull(decimalType, "decimalType is null").getScale();
-        requireNonNull(roundingMode, "roundingMode is null");
-        return ObjectReadFunction.of(
-                Int128.class,
-                (resultSet, columnIndex) -> Decimals.valueOf(resultSet.getBigDecimal(columnIndex).setScale(scale, roundingMode)));
-    }
-
-    public static ObjectWriteFunction longDecimalWriteFunction(DecimalType decimalType)
-    {
-        requireNonNull(decimalType, "decimalType is null");
-        checkArgument(!decimalType.isShort());
-        return new ObjectWriteFunction()
-        {
-            @Override
-            public Class<Int128> getJavaType()
-            {
-                return Int128.class;
-            }
-
-            @Override
-            @SuppressWarnings("unchecked")
-            public void set(PreparedStatement statement, int index, Object value)
-                    throws SQLException
-            {
-                BigInteger unscaledValue = ((Int128) value).toBigInteger();
-                BigDecimal bigDecimal = new BigDecimal(unscaledValue, decimalType.getScale(), new MathContext(decimalType.getPrecision()));
-                statement.setBigDecimal(index, bigDecimal);
-            }
-
-            @Override
-            public void setNull(PreparedStatement statement, int index)
-                    throws SQLException
-            {
-                statement.setNull(index, Types.DECIMAL);
-            }
-        };
-    }
-
-    public static ColumnMapping defaultCharColumnMapping(int columnSize, boolean isRemoteCaseSensitive)
-    {
-        if (columnSize > CharType.MAX_LENGTH) {
-            return defaultVarcharColumnMapping(columnSize, isRemoteCaseSensitive);
-        }
-        return charColumnMapping(createCharType(columnSize), isRemoteCaseSensitive);
-    }
-
-    public static ColumnMapping charColumnMapping(CharType charType, boolean isRemoteCaseSensitive)
-    {
-        requireNonNull(charType, "charType is null");
-        PredicatePushdownController pushdownController = isRemoteCaseSensitive ? FULL_PUSHDOWN : CASE_INSENSITIVE_CHARACTER_PUSHDOWN;
-        return ColumnMapping.sliceMapping(charType, charReadFunction(charType), charWriteFunction(), pushdownController);
-    }
-
-    public static SliceReadFunction charReadFunction(CharType charType)
-    {
-        requireNonNull(charType, "charType is null");
-        return (resultSet, columnIndex) -> {
-            Slice slice = utf8Slice(CharMatcher.is(' ').trimTrailingFrom(resultSet.getString(columnIndex)));
-            checkLengthInCodePoints(slice, charType, charType.getLength());
-            return slice;
-        };
-    }
-
-    public static SliceWriteFunction charWriteFunction()
-    {
-        return SliceWriteFunction.of(Types.CHAR, (statement, index, value) -> statement.setString(index, value.toStringUtf8()));
-    }
-
-    public static ColumnMapping defaultVarcharColumnMapping(int columnSize, boolean isRemoteCaseSensitive)
-    {
-        if (columnSize > VarcharType.MAX_LENGTH) {
-            return varcharColumnMapping(createUnboundedVarcharType(), isRemoteCaseSensitive);
-        }
-        return varcharColumnMapping(createVarcharType(columnSize), isRemoteCaseSensitive);
-    }
-
-    public static ColumnMapping varcharColumnMapping(VarcharType varcharType, boolean isRemoteCaseSensitive)
-    {
-        PredicatePushdownController pushdownController = isRemoteCaseSensitive ? FULL_PUSHDOWN : CASE_INSENSITIVE_CHARACTER_PUSHDOWN;
-        return ColumnMapping.sliceMapping(varcharType, varcharReadFunction(varcharType), varcharWriteFunction(), pushdownController);
-    }
-
-    public static SliceReadFunction varcharReadFunction(VarcharType varcharType)
-    {
-        requireNonNull(varcharType, "varcharType is null");
-        if (varcharType.isUnbounded()) {
-            return (resultSet, columnIndex) -> utf8Slice(resultSet.getString(columnIndex));
-        }
-        return (resultSet, columnIndex) -> {
-            Slice slice = utf8Slice(resultSet.getString(columnIndex));
-            checkLengthInCodePoints(slice, varcharType, varcharType.getBoundedLength());
-            return slice;
-        };
-    }
-
-    private static void checkLengthInCodePoints(Slice value, Type characterDataType, int lengthLimit)
-    {
-        // Quick check in bytes
-        if (value.length() <= lengthLimit) {
-            return;
-        }
-        // Actual check
-        if (countCodePoints(value) <= lengthLimit) {
-            return;
-        }
-        throw new IllegalStateException(format(
-                "Illegal value for type %s: '%s' [%s]",
-                characterDataType,
-                value.toStringUtf8(),
-                base16().encode(value.getBytes())));
-    }
-
-    public static SliceWriteFunction varcharWriteFunction()
-    {
-        return SliceWriteFunction.of(Types.VARCHAR, (statement, index, value) -> statement.setString(index, value.toStringUtf8()));
-    }
-
-    public static ColumnMapping varbinaryColumnMapping()
-    {
-        return ColumnMapping.sliceMapping(
-                VARBINARY,
-                varbinaryReadFunction(),
-                varbinaryWriteFunction(),
-                DISABLE_PUSHDOWN);
-    }
-
-    public static SliceReadFunction varbinaryReadFunction()
-    {
-        return (resultSet, columnIndex) -> wrappedBuffer(resultSet.getBytes(columnIndex));
-    }
-
-    public static SliceWriteFunction varbinaryWriteFunction()
-    {
-        return SliceWriteFunction.of(Types.VARBINARY, (statement, index, value) -> statement.setBytes(index, value.getBytes()));
-    }
+    private TeradataColumnMappings() {}
 
     /**
      * @deprecated This method leads to incorrect result when the date value is before 1582 Oct 14.
@@ -419,9 +128,7 @@ public final class StandardColumnMappings
             public boolean isNull(ResultSet resultSet, int columnIndex)
                     throws SQLException
             {
-                // 'ResultSet.getObject' without class name may throw an exception
-                // e.g. in MySQL driver, rs.getObject(int) throws for dates between Oct 5 and 14, 1582
-                resultSet.getObject(columnIndex, LocalDate.class);
+                resultSet.getObject(columnIndex);
                 return resultSet.wasNull();
             }
 
@@ -429,7 +136,8 @@ public final class StandardColumnMappings
             public long readLong(ResultSet resultSet, int columnIndex)
                     throws SQLException
             {
-                LocalDate value = resultSet.getObject(columnIndex, LocalDate.class);
+                final Date date = (Date) resultSet.getObject(columnIndex);
+                LocalDate value = date.toLocalDate();
                 // Some drivers (e.g. MemSQL's) return null LocalDate even though the value isn't null
                 if (value == null) {
                     throw new TrinoException(JDBC_ERROR, "Driver returned null LocalDate for a non-null value");
@@ -446,7 +154,7 @@ public final class StandardColumnMappings
     }
 
     /**
-     * @deprecated This method uses {@link java.sql.Time} and the class cannot represent time value when JVM zone had
+     * @deprecated This method uses {@link Time} and the class cannot represent time value when JVM zone had
      * forward offset change (a 'gap') at given time on 1970-01-01. If driver only supports {@link LocalTime}, use
      * {@link #timeColumnMapping} instead.
      */
@@ -470,7 +178,7 @@ public final class StandardColumnMappings
     }
 
     /**
-     * @deprecated This method uses {@link java.sql.Time} and the class cannot represent time value when JVM zone had
+     * @deprecated This method uses {@link Time} and the class cannot represent time value when JVM zone had
      * forward offset change (a 'gap') at given time on 1970-01-01. If driver only supports {@link LocalTime}, use
      * {@link #timeWriteFunction} instead.
      */
@@ -499,8 +207,8 @@ public final class StandardColumnMappings
         requireNonNull(timeType, "timeType is null");
         checkArgument(timeType.getPrecision() <= 9, "Unsupported type precision: %s", timeType);
         return (resultSet, columnIndex) -> {
-            LocalTime time = resultSet.getObject(columnIndex, LocalTime.class);
-            long nanosOfDay = time.toNanoOfDay();
+            final Time time = (Time) resultSet.getObject(columnIndex);
+            long nanosOfDay = time.toLocalTime().toNanoOfDay();
             verify(nanosOfDay < NANOSECONDS_PER_DAY, "Invalid value of nanosOfDay: %s", nanosOfDay);
             long picosOfDay = nanosOfDay * PICOSECONDS_PER_NANOSECOND;
             long rounded = round(picosOfDay, 12 - timeType.getPrecision());
@@ -525,7 +233,7 @@ public final class StandardColumnMappings
     }
 
     /**
-     * @deprecated This method uses {@link java.sql.Timestamp} and the class cannot represent date-time value when JVM zone had
+     * @deprecated This method uses {@link Timestamp} and the class cannot represent date-time value when JVM zone had
      * forward offset change (a 'gap'). This includes regular DST changes (e.g. Europe/Warsaw) and one-time policy changes
      * (Asia/Kathmandu's shift by 15 minutes on January 1, 1986, 00:00:00). This mapping also disables pushdown by default
      * to ensure correctness because rounding happens within Trino and won't apply to remote system.
@@ -571,7 +279,10 @@ public final class StandardColumnMappings
     public static LongReadFunction timestampReadFunction(TimestampType timestampType)
     {
         checkArgument(timestampType.getPrecision() <= TimestampType.MAX_SHORT_PRECISION, "Precision is out of range: %s", timestampType.getPrecision());
-        return (resultSet, columnIndex) -> toTrinoTimestamp(timestampType, resultSet.getObject(columnIndex, LocalDateTime.class));
+        return (resultSet, columnIndex) -> {
+            final Timestamp timestamp = (Timestamp) resultSet.getObject(columnIndex);
+            return toTrinoTimestamp(timestampType, timestamp.toLocalDateTime());
+        };
     }
 
     private static ObjectReadFunction longTimestampReadFunction(TimestampType timestampType)
@@ -584,7 +295,7 @@ public final class StandardColumnMappings
     }
 
     /**
-     * @deprecated This method uses {@link java.sql.Timestamp} and the class cannot represent date-time value when JVM zone had
+     * @deprecated This method uses {@link Timestamp} and the class cannot represent date-time value when JVM zone had
      * forward offset change (a 'gap'). This includes regular DST changes (e.g. Europe/Warsaw) and one-time policy changes
      * (Asia/Kathmandu's shift by 15 minutes on January 1, 1986, 00:00:00). If driver only supports {@link LocalDateTime}, use
      * {@link #timestampWriteFunction} instead.
