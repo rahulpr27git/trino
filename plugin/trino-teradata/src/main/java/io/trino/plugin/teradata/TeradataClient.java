@@ -35,7 +35,6 @@ import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
 import io.trino.plugin.jdbc.PreparedQuery;
 import io.trino.plugin.jdbc.QueryBuilder;
-import io.trino.plugin.jdbc.RemoteTableName;
 import io.trino.plugin.jdbc.WriteMapping;
 import io.trino.plugin.jdbc.aggregation.ImplementAvgDecimal;
 import io.trino.plugin.jdbc.aggregation.ImplementAvgFloatingPoint;
@@ -159,7 +158,6 @@ import static java.lang.Float.floatToRawIntBits;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.String.format;
-import static java.lang.String.join;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -321,13 +319,6 @@ public class TeradataClient
                 quoted(handle.asPlainTable().getRemoteTableName()),
                 comment.orElse(NO_COMMENT)); // An empty character removes the existing comment in teradata
         execute(session, sql);
-    }
-
-    @Override
-    protected String createTableSql(RemoteTableName remoteTableName, List<String> columns, ConnectorTableMetadata tableMetadata)
-    {
-        checkArgument(tableMetadata.getProperties().isEmpty(), "Unsupported table properties: %s", tableMetadata.getProperties());
-        return format("CREATE TABLE %s (%s) COMMENT '%s'", quoted(remoteTableName), join(", ", columns), tableMetadata.getComment().orElse(NO_COMMENT));
     }
 
     @Override
@@ -523,24 +514,7 @@ public class TeradataClient
         }
 
         if (type instanceof VarcharType) {
-            VarcharType varcharType = (VarcharType) type;
-            String dataType;
-            if (varcharType.isUnbounded()) {
-                dataType = "longtext";
-            }
-            else if (varcharType.getBoundedLength() <= 255) {
-                dataType = "tinytext";
-            }
-            else if (varcharType.getBoundedLength() <= 65535) {
-                dataType = "text";
-            }
-            else if (varcharType.getBoundedLength() <= 16777215) {
-                dataType = "mediumtext";
-            }
-            else {
-                dataType = "longtext";
-            }
-            return WriteMapping.sliceMapping(dataType, varcharWriteFunction());
+            return WriteMapping.sliceMapping("varchar(" + ((VarcharType) type).getLength().orElse(0) + ")", charWriteFunction());
         }
 
         if (type.equals(jsonType)) {
