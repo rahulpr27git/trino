@@ -228,7 +228,8 @@ public class TeradataClient
     {
         super(config, "\"", connectionFactory, queryBuilder, identifierMapping);
         this.jsonType = typeManager.getType(new TypeSignature(StandardTypes.JSON));
-        this.statisticsEnabled = requireNonNull(statisticsConfig, "statisticsConfig is null").isEnabled();
+        //TODO: Remove or Fix the statics code
+        this.statisticsEnabled = false; //requireNonNull(statisticsConfig, "statisticsConfig is null").isEnabled();
 
         this.connectorExpressionRewriter = JdbcConnectorExpressionRewriterBuilder.newBuilder()
                 .addStandardRules(this::quoted)
@@ -568,7 +569,12 @@ public class TeradataClient
     @Override
     protected Optional<BiFunction<String, Long, String>> limitFunction()
     {
-        return Optional.of((sql, limit) -> format("SELECT TOP %s * FROM (%s) o", limit, sql));
+        return Optional.of(this::sqlWithLimit);
+    }
+
+    private String sqlWithLimit(String sql, Long limit)
+    {
+        return format("SELECT TOP %s * FROM (%s) o", limit, sql);
     }
 
     @Override
@@ -594,31 +600,28 @@ public class TeradataClient
     protected Optional<TopNFunction> topNFunction()
     {
         return Optional.of((query, sortItems, limit) -> {
-            String orderBy = sortItems.stream()
-                    .flatMap(sortItem -> {
-                        String ordering = sortItem.getSortOrder().isAscending() ? "ASC" : "DESC";
-                        String columnSorting = format("%s %s", quoted(sortItem.getColumn().getColumnName()), ordering);
+            String orderBy = sortItems.stream().flatMap(sortItem -> {
+                String ordering = sortItem.getSortOrder().isAscending() ? "ASC" : "DESC";
+                String columnSorting = format("%s %s", quoted(sortItem.getColumn().getColumnName()), ordering);
 
-                        switch (sortItem.getSortOrder()) {
-                            case ASC_NULLS_FIRST:
-                                // In teradata ASC implies NULLS FIRST
-                            case DESC_NULLS_LAST:
-                                // In teradata DESC implies NULLS LAST
-                                return Stream.of(columnSorting);
+                switch (sortItem.getSortOrder()) {
+                    // In Teradata ASC implies NULLS FIRST/LAST
+                    case ASC_NULLS_FIRST:
+                    case DESC_NULLS_LAST:
+                        return Stream.of(columnSorting);
 
-                            case ASC_NULLS_LAST:
-                                return Stream.of(
-                                        format("ISNULL(%s) ASC", quoted(sortItem.getColumn().getColumnName())),
-                                        columnSorting);
-                            case DESC_NULLS_FIRST:
-                                return Stream.of(
-                                        format("ISNULL(%s) DESC", quoted(sortItem.getColumn().getColumnName())),
-                                        columnSorting);
-                        }
-                        throw new UnsupportedOperationException("Unsupported sort order: " + sortItem.getSortOrder());
-                    })
-                    .collect(joining(", "));
-            return format("%s ORDER BY %s LIMIT %s", query, orderBy, limit);
+                    case ASC_NULLS_LAST:
+                        return Stream.of(
+                                format("(CASE WHEN %s IS NULL THEN 1 ELSE 0 END) ASC", quoted(sortItem.getColumn().getColumnName())),
+                                columnSorting);
+                    case DESC_NULLS_FIRST:
+                        return Stream.of(
+                                format("(CASE WHEN %s IS NULL THEN 1 ELSE 0 END) DESC", quoted(sortItem.getColumn().getColumnName())),
+                                columnSorting);
+                }
+                throw new UnsupportedOperationException("Unsupported sort order: " + sortItem.getSortOrder());
+            }).collect(joining(", "));
+            return format("%s ORDER BY %s", sqlWithLimit(query, limit), orderBy);
         });
     }
 
