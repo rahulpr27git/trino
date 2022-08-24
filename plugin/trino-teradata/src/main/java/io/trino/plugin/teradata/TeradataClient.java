@@ -568,7 +568,7 @@ public class TeradataClient
     @Override
     protected Optional<BiFunction<String, Long, String>> limitFunction()
     {
-        return Optional.of((sql, limit) -> sql + " LIMIT " + limit);
+        return Optional.of((sql, limit) -> format("SELECT TOP %s * FROM (%s) o", limit, sql));
     }
 
     @Override
