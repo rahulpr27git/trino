@@ -33,10 +33,10 @@
             <artifactId>configuration</artifactId>
         </dependency>
 
-        <dependency>
+       <!-- <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>json</artifactId>
-        </dependency>
+        </dependency>-->
 
         <dependency>
             <groupId>io.airlift</groupId>
@@ -74,10 +74,10 @@
             <artifactId>validation-api</artifactId>
         </dependency>
 
-        <dependency>
+        <!--<dependency>
             <groupId>org.jdbi</groupId>
             <artifactId>jdbi3-core</artifactId>
-        </dependency>
+        </dependency>-->
 
         <!-- used by tests but also needed transitively -->
         <dependency>
